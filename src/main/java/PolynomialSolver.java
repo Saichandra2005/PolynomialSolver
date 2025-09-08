@@ -1,76 +1,95 @@
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.io.File;
 import java.math.BigInteger;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-import org.apache.commons.math3.linear.DecompositionSolver;
-import org.apache.commons.math3.linear.LUDecomposition;
-import org.apache.commons.math3.linear.MatrixUtils;
-import org.apache.commons.math3.linear.RealMatrix;
-import org.apache.commons.math3.linear.RealVector;
+public class PolynomialSolve {
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+    // Simple rational class using BigInteger
+    static class Rational {
+        BigInteger num; // numerator
+        BigInteger den; // denominator > 0
 
-public class PolynomialSolver {
+        Rational(BigInteger n, BigInteger d) {
+            if (d.signum() == 0) throw new ArithmeticException("Zero denominator");
+            if (d.signum() < 0) { n = n.negate(); d = d.negate(); }
+            BigInteger g = n.gcd(d);
+            this.num = n.divide(g);
+            this.den = d.divide(g);
+        }
+
+        Rational add(Rational other) {
+            BigInteger n = this.num.multiply(other.den).add(other.num.multiply(this.den));
+            BigInteger d = this.den.multiply(other.den);
+            return new Rational(n, d);
+        }
+
+        Rational mul(BigInteger k) {
+            return new Rational(this.num.multiply(k), this.den);
+        }
+
+        @Override
+        public String toString() {
+            if (den.equals(BigInteger.ONE)) return num.toString();
+            return num + "/" + den;
+        }
+    }
+
     public static void main(String[] args) throws Exception {
-        // Step 1: Load JSON file
+        // Load JSON
         ObjectMapper mapper = new ObjectMapper();
         JsonNode root = mapper.readTree(new File("src/main/resources/input.json"));
+        int k = root.get("keys").get("k").asInt(); // use first k points
 
-        int k = root.get("keys").get("k").asInt(); // m+1 points needed
+        // Read first k points (x, y)
+        int[] xs = new int[k];
+        BigInteger[] ys = new BigInteger[k];
+        int idx = 0;
 
-        // Step 2: Extract (x, y) pairs with BigInteger
         Map<Integer, BigInteger> points = new LinkedHashMap<>();
         Iterator<String> fieldNames = root.fieldNames();
         while (fieldNames.hasNext()) {
             String key = fieldNames.next();
-            if (key.equals("keys")) continue;
-
+            if ("keys".equals(key)) continue;
             int x = Integer.parseInt(key);
             int base = root.get(key).get("base").asInt();
             String val = root.get(key).get("value").asText();
-
-            // Parse y as BigInteger to handle huge values
             BigInteger y = new BigInteger(val, base);
             points.put(x, y);
         }
 
-        // Step 3: Prepare matrices (convert BigInteger to double for solving)
-        double[][] matrixData = new double[k][k];
-        double[] result = new double[k];
+        for (Map.Entry<Integer, BigInteger> e : points.entrySet()) {
+            if (idx >= k) break;
+            xs[idx] = e.getKey();
+            ys[idx] = e.getValue();
+            idx++;
+        }
 
-        int row = 0;
-        for (Map.Entry<Integer, BigInteger> entry : points.entrySet()) {
-            if (row >= k) break; // only need first k points
-            int x = entry.getKey();
-            BigInteger yBig = entry.getValue();
+        // Compute exact constant term P(0) using Lagrange
+        Rational result = new Rational(BigInteger.ZERO, BigInteger.ONE);
 
-            // Convert y to double (approximation for solving)
-            double y = yBig.doubleValue();
+        for (int i = 0; i < k; i++) {
+            BigInteger xi = BigInteger.valueOf(xs[i]);
+            BigInteger numerator = BigInteger.ONE;
+            BigInteger denominator = BigInteger.ONE;
 
-            for (int col = 0; col < k; col++) {
-                matrixData[row][col] = Math.pow(x, k - col - 1);
+            for (int j = 0; j < k; j++) {
+                if (i == j) continue;
+                BigInteger xj = BigInteger.valueOf(xs[j]);
+                numerator = numerator.multiply(xj.negate()); // * (-x_j)
+                denominator = denominator.multiply(xi.subtract(xj)); // * (x_i - x_j)
             }
-            result[row] = y;
-            row++;
+
+            Rational term = new Rational(ys[i].multiply(numerator), denominator);
+            result = result.add(term);
         }
 
-        // Step 4: Solve linear system
-        RealMatrix A = MatrixUtils.createRealMatrix(matrixData);
-        RealVector b = MatrixUtils.createRealVector(result);
-        DecompositionSolver solver = new LUDecomposition(A).getSolver();
-        RealVector solution = solver.solve(b);
-
-        // Step 5: Get constant term only
-        double constantC = solution.getEntry(k - 1);
-
-        // Print nicely
-        if (Math.abs(constantC - Math.round(constantC)) < 1e-6) {
-            System.out.println("constant c: " + (int) Math.round(constantC));
-        } else {
-            System.out.printf("constant c: %.6f%n", constantC);
-        }
+        // Print only constant term
+        System.out.println("constant c: " + result);
     }
 }
+
