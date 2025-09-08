@@ -89,7 +89,7 @@ public class PolynomialSolve {
         }
 
         // Print only constant term
-        System.out.println("constant c: " + result);
+        System.out.println(result);
     }
 }
 
